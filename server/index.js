@@ -133,4 +133,4 @@ app.use((req, res, next) => {
 })
 
 const PORT = process.env.PORT || 8080
-app.listen(PORT, () => console.log(`homelab-gateway listening on :${PORT}`))
+app.listen(PORT, () => console.log(`homelab-gateway ready, listening on :${PORT}`))
