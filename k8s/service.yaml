@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: homelab-gateway
+  labels:
+    app: homelab-gateway
+spec:
+  # ClusterIP, not LoadBalancer: reached via ingress-nginx (gateway.home)
+  # rather than its own MetalLB address -- see docs/adr/0014 in
+  # gitops-homelab, only 4 addresses are left in the pool and this is
+  # exactly the case that ADR was meant to stop from consuming one each.
+  type: ClusterIP
+  selector:
+    app: homelab-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

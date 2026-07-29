@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homelab-gateway
+  labels:
+    app: homelab-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: homelab-gateway
+  template:
+    metadata:
+      labels:
+        app: homelab-gateway
+    spec:
+      containers:
+        - name: homelab-gateway
+          # Tag is rewritten to the built commit SHA by the docker-publish
+          # workflow on every push to main; see gitops-homelab docs/adr/0006.
+          image: ghcr.io/koydas/homelab-gateway:latest
+          env:
+            - name: OLLAMA_URL
+              value: http://ollama.ollama.svc.cluster.local:11434
+            - name: WHISPER_URL
+              value: http://whisper.whisper.svc.cluster.local:9000
+            - name: PIPER_URL
+              value: http://piper.piper.svc.cluster.local:8000
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

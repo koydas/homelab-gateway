@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homelab-gateway
+spec:
+  rules:
+    - host: gateway.home
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homelab-gateway
+                port:
+                  number: 80
