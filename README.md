@@ -65,10 +65,15 @@ pointing at the shared ingress-nginx IP:
 192.168.1.243  gateway.home
 ```
 
-This is the same requirement as `ollama-chat.home` and any other
-`*.home` service behind the same ingress — one entry covers all of them
-since they share the IP, but it still has to be added on each client
-individually.
+`/etc/hosts` resolves one hostname per line, so this entry only covers
+`gateway.home` — it does not also resolve `ollama-chat.home` or any other
+`*.home` service, even though they share the same ingress IP. Each hostname
+needs its own line, added on each client individually, e.g.:
+
+```
+192.168.1.243  gateway.home
+192.168.1.243  ollama-chat.home
+```
 
 ### Transport: HTTP, not TLS
 
