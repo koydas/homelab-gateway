@@ -36,11 +36,14 @@ const ollamaModelRequests = new client.Counter({
 const app = express()
 
 // Records metrics and the call-log entry for every request that got routed
-// somewhere. req.gatewayBackend is set by the routing middleware below
-// before handing off to a proxy; requests that never reach a backend
-// (/healthz, /metrics, a rejected 400) leave it unset and are skipped here.
-// Response body/content-type, when captured, are attached to req by the
-// proxyRes hooks below (see captureProxyResponse).
+// somewhere, or that the gateway itself rejected. req.gatewayBackend is set
+// either by the routing middleware below before handing off to a proxy
+// (backend name), or by the gateway's own rejection paths (malformed JSON,
+// unroutable body — backend 'gateway', see below). /healthz and /metrics
+// leave it unset and are the only requests skipped here — they're scraper/
+// liveness noise, not application traffic. Response body/content-type, when
+// captured, are attached to req by the proxyRes hooks below (see
+// captureProxyResponse).
 app.use((req, res, next) => {
   const start = process.hrtime.bigint()
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress
@@ -153,6 +156,7 @@ app.use(express.json({ limit: '25mb' }))
 
 app.use((err, req, res, next) => {
   if (err.type === 'entity.parse.failed') {
+    req.gatewayBackend = 'gateway'
     return res.status(400).json({ error: 'Invalid JSON body' })
   }
   next(err)
@@ -181,6 +185,7 @@ app.use((req, res, next) => {
     return ollamaProxy(req, res, next)
   }
 
+  req.gatewayBackend = 'gateway'
   res.status(400).json({
     error: 'Unable to determine target service from request body. Expected a "text" field (Piper) or a "model" field (Ollama).',
   })
