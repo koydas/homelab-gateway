@@ -1,6 +1,7 @@
 # homelab-gateway
 
 [![e2e](https://github.com/koydas/homelab-gateway/actions/workflows/e2e.yml/badge.svg)](https://github.com/koydas/homelab-gateway/actions/workflows/e2e.yml)
+[![build/deploy](https://github.com/koydas/homelab-gateway/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/koydas/homelab-gateway/actions/workflows/docker-publish.yml)
 
 Single LAN entry point in front of `whisper`, `piper`, and `ollama`. Routes
 each request to the right backend by inspecting its content — no `/whisper`,
