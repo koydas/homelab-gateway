@@ -27,8 +27,13 @@ const connecting = MongoClient.connect(MONGO_URL, { serverSelectionTimeoutMS: 50
     console.error(`call-log: could not connect to MongoDB, call logging disabled: ${err.message}`)
   })
 
-const isLoggableContentType = (contentType) =>
-  /^(application\/json|text\/)/.test(contentType || '')
+// Covers application/json, text/*, and JSON-lines variants like Ollama's
+// streaming application/x-ndjson — anything with "json" in the type, plus
+// any text/* type.
+const isLoggableContentType = (contentType) => {
+  const type = contentType || ''
+  return type.includes('json') || type.startsWith('text/')
+}
 
 // Bodies are captured as raw values by the caller (already-parsed JSON for
 // requests, raw Buffer for proxied responses) and normalized here.
