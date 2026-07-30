@@ -37,6 +37,7 @@ const ollamaModelRequests = new client.Counter({
 // this histogram fills that gap using Ollama's own generation-speed stats
 // (see parseOllamaStats below), so per-model performance drift is visible
 // in Grafana instead of only reachable by hand-parsing a Mongo blob.
+// See ADR-0002 (docs/adr/0002-structured-ollama-stats.md).
 const ollamaTokensPerSecond = new client.Histogram({
   name: 'gateway_ollama_tokens_per_second',
   help: 'Ollama generation speed (eval tokens per second), by model, from native Ollama timing stats',
@@ -62,6 +63,7 @@ const app = express()
 // "parse the last line" logic covers both. Runs against the raw captured
 // buffer -- *before* call-log.js's 64KB body-storage cap -- so a large
 // generation that loses its stored responseBody doesn't also lose these.
+// See ADR-0002 (docs/adr/0002-structured-ollama-stats.md).
 const parseOllamaStats = (buffer) => {
   if (!buffer || buffer.length === 0) return null
   const lines = buffer.toString('utf8').split('\n').filter((line) => line.trim().length > 0)

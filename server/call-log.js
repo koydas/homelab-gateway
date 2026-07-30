@@ -62,6 +62,7 @@ const summarizeBody = (body, contentType, isBuffer) => {
 // applies, so a large generation losing its responseBody (see summarizeBody) doesn't also lose
 // these. Stored as top-level fields (not left buried in responseBody text) so they're directly
 // queryable/aggregatable, e.g. db.call_log.find({ model: 'llava:7b' }).
+// See ADR-0002 (docs/adr/0002-structured-ollama-stats.md).
 export function logCall(entry) {
   if (!collection) return // Mongo unavailable or still connecting — drop silently, see console.error above
 

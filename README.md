@@ -33,6 +33,8 @@ Applied in order, based on `Content-Type` and the JSON body shape:
   - `gateway_http_requests_total{backend,method,status_code}`
   - `gateway_http_request_duration_seconds{backend}`
   - `gateway_ollama_model_requests_total{model}`
+  - `gateway_ollama_tokens_per_second{model}` — generation speed histogram, from Ollama's own
+    native timing stats (see below and [ADR-0002](./docs/adr/0002-structured-ollama-stats.md))
 
 CPU/RAM per backend pod isn't duplicated here — it's already collected by
 the cluster's existing cAdvisor/kube-prometheus metrics, filterable by
@@ -51,6 +53,12 @@ for why.
 - Bodies are only stored for JSON/text content-types up to 64KB; anything
   else (audio, oversized bodies) is recorded as size + content-type only,
   to avoid dumping binary blobs into Mongo for no benefit.
+- For `ollama`-backed calls, Ollama's own native timing stats
+  (`promptEvalCount`, `promptEvalDurationMs`, `evalCount`, `evalDurationMs`,
+  `loadDurationMs`, `totalDurationMs`) are stored as dedicated top-level
+  fields — extracted from the raw NDJSON response *before* the 64KB cap
+  above applies, so they survive even when the full response body is too
+  large to store. See [ADR-0002](./docs/adr/0002-structured-ollama-stats.md).
 - Logging is fire-and-forget: a slow or unreachable Mongo never adds
   latency to a proxied request, and never takes the gateway down — insert
   failures are only `console.error`'d.

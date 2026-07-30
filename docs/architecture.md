@@ -16,8 +16,8 @@ This page is the map: components and the production runtime topology. See also:
 | Component | Role | Source |
 |---|---|---|
 | Express app | Content-sniffing router + reverse proxy | `server/index.js` |
-| `homelab-gateway-mongo` | Bundled MongoDB, per-call request/response log | `server/call-log.js`, `k8s/mongo.yaml`, [ADR-0001](./adr/0001-mongodb-call-log.md) |
-| `/metrics` | Prometheus counters/histogram, scraped by `gitops-homelab`'s monitoring stack | `server/index.js` (`prom-client`) |
+| `homelab-gateway-mongo` | Bundled MongoDB, per-call request/response log + structured Ollama timing stats | `server/call-log.js`, `k8s/mongo.yaml`, [ADR-0001](./adr/0001-mongodb-call-log.md), [ADR-0002](./adr/0002-structured-ollama-stats.md) |
+| `/metrics` | Prometheus counters/histograms, scraped by `gitops-homelab`'s monitoring stack | `server/index.js` (`prom-client`) |
 | Ollama | LLM inference backend | in-cluster `ollama` Service |
 | Whisper | Speech-to-text backend | in-cluster `whisper` Service |
 | Piper | Text-to-speech backend | in-cluster `piper` Service |

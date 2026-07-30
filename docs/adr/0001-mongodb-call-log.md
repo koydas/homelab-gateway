@@ -18,7 +18,10 @@ Every proxied request now gets one document written to a bundled, single-replica
 `res.on('finish')` metrics hook in `server/index.js`.
 
 - **Schema per doc:** timestamp, backend, method, path, status code, duration, Ollama model
-  (if present), client IP, and request/response bodies.
+  (if present), client IP, and request/response bodies. Extended in
+  [ADR-0002](./0002-structured-ollama-stats.md) (2026-07-30) with structured Ollama timing-stat
+  fields (`promptEvalCount`, `evalCount`, `evalDurationMs`, etc.) instead of leaving them
+  buried in the raw response body text.
 - **Body capture is capped and content-type-filtered:** only `application/json`/`text/*`
   bodies up to 64KB are stored; anything else (audio bytes, oversized payloads) is recorded as
   size + content-type only. Storing base64-encoded audio blobs or multi-megabyte streamed
