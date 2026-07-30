@@ -18,7 +18,7 @@ spec:
         - name: homelab-gateway
           # Tag is rewritten to the built commit SHA by the docker-publish
           # workflow on every push to main; see gitops-homelab docs/adr/0006.
-          image: ghcr.io/koydas/homelab-gateway:691f7a1
+          image: ghcr.io/koydas/homelab-gateway:9a2a8ac
           env:
             - name: OLLAMA_URL
               value: http://ollama.ollama.svc.cluster.local:11434
