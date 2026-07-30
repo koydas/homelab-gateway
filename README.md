@@ -5,6 +5,9 @@ each request to the right backend by inspecting its content — no `/whisper`,
 `/piper`, `/ollama` prefix required — and exposes Prometheus metrics for
 request counts, latency, and Ollama model usage.
 
+See `docs/adr/README.md` for the design decisions behind non-obvious parts
+of this repo.
+
 ## Routing rules
 
 Applied in order, based on `Content-Type` and the JSON body shape:
@@ -36,7 +39,8 @@ namespace (`whisper`, `piper`, `ollama`, `homelab-gateway`).
 Every proxied request is also written as one document per call to a
 `homelab-gateway-mongo` MongoDB instance (`k8s/mongo.yaml`), separate from
 the aggregate `/metrics` counters above — this is per-call history, not just
-totals. See `server/call-log.js`.
+totals. See `server/call-log.js` and [ADR-0001](./docs/adr/0001-mongodb-call-log.md)
+for why.
 
 - Each document: timestamp, backend, method, path, status code, duration,
   Ollama model (if any), client IP, and request/response bodies.
