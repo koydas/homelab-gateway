@@ -83,7 +83,19 @@ const piperProxy = createProxyMiddleware({
 const ollamaProxy = createProxyMiddleware({
   target: OLLAMA_URL,
   changeOrigin: true,
-  on: { proxyReq: fixRequestBody, error: onProxyError('ollama') },
+  on: {
+    // Ollama enforces an Origin allowlist (DNS-rebinding protection) and
+    // rejects anything that isn't same-origin with itself. changeOrigin
+    // only rewrites the Host header, so the Origin of whatever client sent
+    // this request (e.g. ollama-chat, or this gateway's own address) would
+    // otherwise pass through untouched and get a 403 — same fix ollama-chat
+    // applies for its own direct-to-Ollama proxy.
+    proxyReq: (proxyReq, req) => {
+      proxyReq.setHeader('origin', OLLAMA_URL)
+      fixRequestBody(proxyReq, req)
+    },
+    error: onProxyError('ollama'),
+  },
 })
 
 // Rule 1: audio/* or multipart -> whisper, streamed through unparsed so a
