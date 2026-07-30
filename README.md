@@ -8,8 +8,9 @@ each request to the right backend by inspecting its content — no `/whisper`,
 `/piper`, `/ollama` prefix required — and exposes Prometheus metrics for
 request counts, latency, and Ollama model usage.
 
-See `docs/adr/README.md` for the design decisions behind non-obvious parts
-of this repo.
+See [`docs/architecture.md`](./docs/architecture.md) for diagrams of how this
+fits together, and [`docs/adr/README.md`](./docs/adr/README.md) for the
+design decisions behind non-obvious parts of this repo.
 
 ## Routing rules
 
