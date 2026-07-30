@@ -40,7 +40,7 @@ flowchart TD
     D -- yes --> P["Piper<br/>POST /tts"]
     D -- no --> E{JSON body has<br/>a 'model' field?}
     E -- yes --> O["Ollama<br/>original path preserved"]
-    E -- no --> F{Body is empty<br/>(GET, /api/tags, ...)?}
+    E -- no --> F{"Body is empty<br/>(GET, /api/tags, ...)?"}
     F -- yes --> O
     F -- no --> R["400: can't determine backend"]
 ```
