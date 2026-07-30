@@ -68,6 +68,24 @@ PIPER_URL=http://192.168.1.246:8000 \
 npm run dev
 ```
 
+## Tests
+
+```bash
+npm test
+```
+
+`test/gateway.e2e.test.js` runs the real Express app (`server/index.js`) against
+an in-memory MongoDB ([`mongodb-memory-server`](https://github.com/typegoose/mongodb-memory-server))
+and three fake HTTP backends standing in for Ollama/Whisper/Piper — no external
+services or Docker needed. Covers routing, the call-log capture rules
+(truncation, content-type filtering including NDJSON, binary bodies never
+stored), concurrent-request isolation, real backend errors, an unreachable
+backend, and locally-rejected requests (malformed JSON, unroutable body) —
+several of these are regression guards for bugs found by exercising the live
+cluster on 2026-07-30 (see [ADR-0001](./docs/adr/0001-mongodb-call-log.md)).
+Gated in CI (`.github/workflows/docker-publish.yml`'s `test` job) before any
+image is built or deployed.
+
 ## Deployment
 
 Deployed via ArgoCD from `k8s/` — see `gitops-homelab/apps/homelab-gateway`.

@@ -15,9 +15,11 @@ const RETENTION_DAYS = Number(process.env.LOG_RETENTION_DAYS || 30)
 // content-type gets stored; anything else is recorded as size + content-type.
 const MAX_BODY_BYTES = 64 * 1024
 
+let mongoClient = null
 let collection = null
 const connecting = MongoClient.connect(MONGO_URL, { serverSelectionTimeoutMS: 5000 })
   .then(async (client) => {
+    mongoClient = client
     const col = client.db(DB_NAME).collection(COLLECTION)
     await col.createIndex({ timestamp: 1 }, { expireAfterSeconds: RETENTION_DAYS * 86400 })
     collection = col
@@ -82,3 +84,10 @@ export function logCall(entry) {
 }
 
 export const ready = connecting
+
+// Not used by the running server (which lives for the pod's lifetime), only
+// by tests that need the process to exit cleanly after a run instead of
+// hanging on an open MongoClient connection.
+export async function close() {
+  if (mongoClient) await mongoClient.close()
+}

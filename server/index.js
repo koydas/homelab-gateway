@@ -191,5 +191,11 @@ app.use((req, res, next) => {
   })
 })
 
-const PORT = process.env.PORT || 8080
-app.listen(PORT, () => console.log(`homelab-gateway ready, listening on :${PORT}`))
+// Guarded so importing this module from tests doesn't also bind :8080 --
+// only bind when run directly, the way the Docker CMD and `npm start` do.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const PORT = process.env.PORT || 8080
+  app.listen(PORT, () => console.log(`homelab-gateway ready, listening on :${PORT}`))
+}
+
+export default app
