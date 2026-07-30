@@ -33,6 +33,18 @@ const ollamaModelRequests = new client.Counter({
   registers: [register],
 })
 
+// Counts requests per model but says nothing about how fast they were --
+// this histogram fills that gap using Ollama's own generation-speed stats
+// (see parseOllamaStats below), so per-model performance drift is visible
+// in Grafana instead of only reachable by hand-parsing a Mongo blob.
+const ollamaTokensPerSecond = new client.Histogram({
+  name: 'gateway_ollama_tokens_per_second',
+  help: 'Ollama generation speed (eval tokens per second), by model, from native Ollama timing stats',
+  labelNames: ['model'],
+  buckets: [1, 2, 5, 10, 15, 20, 30, 50, 100],
+  registers: [register],
+})
+
 const app = express()
 
 // Records metrics and the call-log entry for every request that got routed
@@ -44,6 +56,36 @@ const app = express()
 // liveness noise, not application traffic. Response body/content-type, when
 // captured, are attached to req by the proxyRes hooks below (see
 // captureProxyResponse).
+// Ollama streams NDJSON (one JSON object per line); the final line
+// (`done: true`) carries Ollama's own native timing stats in nanoseconds.
+// Non-streaming responses are just that one object on its own, so the same
+// "parse the last line" logic covers both. Runs against the raw captured
+// buffer -- *before* call-log.js's 64KB body-storage cap -- so a large
+// generation that loses its stored responseBody doesn't also lose these.
+const parseOllamaStats = (buffer) => {
+  if (!buffer || buffer.length === 0) return null
+  const lines = buffer.toString('utf8').split('\n').filter((line) => line.trim().length > 0)
+  if (lines.length === 0) return null
+
+  let last
+  try {
+    last = JSON.parse(lines[lines.length - 1])
+  } catch {
+    return null
+  }
+  if (!last || last.done !== true || typeof last.eval_count !== 'number') return null
+
+  const nsToMs = (ns) => (typeof ns === 'number' ? Math.round(ns / 1e6) : undefined)
+  return {
+    promptEvalCount: last.prompt_eval_count,
+    promptEvalDurationMs: nsToMs(last.prompt_eval_duration),
+    evalCount: last.eval_count,
+    evalDurationMs: nsToMs(last.eval_duration),
+    loadDurationMs: nsToMs(last.load_duration),
+    totalDurationMs: nsToMs(last.total_duration),
+  }
+}
+
 app.use((req, res, next) => {
   const start = process.hrtime.bigint()
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress
@@ -54,19 +96,26 @@ app.use((req, res, next) => {
     requestDuration.observe({ backend }, seconds)
     requestsTotal.inc({ backend, method: req.method, status_code: res.statusCode })
 
+    const model = req.body && req.body.model !== undefined ? String(req.body.model) : undefined
+    const ollamaStats = backend === 'ollama' ? parseOllamaStats(req.gatewayResponseBody) : null
+    if (ollamaStats && ollamaStats.evalCount > 0 && ollamaStats.evalDurationMs > 0) {
+      ollamaTokensPerSecond.observe({ model: model || 'unknown' }, ollamaStats.evalCount / (ollamaStats.evalDurationMs / 1000))
+    }
+
     logCall({
       backend,
       method: req.method,
       path: req.originalUrl,
       statusCode: res.statusCode,
       durationMs: Math.round(seconds * 1000),
-      model: req.body && req.body.model !== undefined ? String(req.body.model) : undefined,
+      model,
       clientIp,
       requestBody: req.body ?? null,
       requestContentType: req.headers['content-type'],
       responseBody: req.gatewayResponseBody ?? null,
       responseContentType: req.gatewayResponseContentType,
       error: req.gatewayProxyError,
+      ollamaStats,
     })
   })
   next()

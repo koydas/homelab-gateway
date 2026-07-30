@@ -53,7 +53,15 @@ const summarizeBody = (body, contentType, isBuffer) => {
 }
 
 // entry: { backend, method, path, statusCode, durationMs, model, clientIp,
-//          requestBody, requestContentType, responseBody, responseContentType, error }
+//          requestBody, requestContentType, responseBody, responseContentType, error,
+//          ollamaStats }
+//
+// ollamaStats (see server/index.js's parseOllamaStats) carries Ollama's own native timing
+// stats -- promptEvalCount, promptEvalDurationMs, evalCount, evalDurationMs, loadDurationMs,
+// totalDurationMs -- extracted from the raw response *before* the 64KB body-storage cap below
+// applies, so a large generation losing its responseBody (see summarizeBody) doesn't also lose
+// these. Stored as top-level fields (not left buried in responseBody text) so they're directly
+// queryable/aggregatable, e.g. db.call_log.find({ model: 'llava:7b' }).
 export function logCall(entry) {
   if (!collection) return // Mongo unavailable or still connecting — drop silently, see console.error above
 
@@ -79,6 +87,7 @@ export function logCall(entry) {
       responseBodyTruncated: res.bodyTruncated,
       responseContentType: entry.responseContentType || null,
       error: entry.error || null,
+      ...(entry.ollamaStats || {}),
     })
     .catch((err) => console.error(`call-log: insert failed: ${err.message}`))
 }

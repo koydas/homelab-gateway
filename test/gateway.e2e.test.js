@@ -267,6 +267,83 @@ test('real backend errors are proxied through and logged with the actual error b
   assert.match(doc.responseBody, /not found/)
 })
 
+test('Ollama native timing stats (NDJSON final line) are extracted to top-level fields', async () => {
+  ollamaFake.setHandler(async (req, res) => {
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' })
+    res.write(JSON.stringify({ message: { content: 'foo' }, done: false }) + '\n')
+    res.end(
+      JSON.stringify({
+        message: { content: '' },
+        done: true,
+        total_duration: 20383548099,
+        load_duration: 4148919317,
+        prompt_eval_count: 2218,
+        prompt_eval_duration: 8321447000,
+        eval_count: 71,
+        eval_duration: 7730835000,
+      }) + '\n',
+    )
+  })
+
+  const res = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'stats-test', messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+
+  const doc = await latestDoc({ backend: 'ollama', model: 'stats-test' })
+  assert.equal(doc.promptEvalCount, 2218)
+  assert.equal(doc.promptEvalDurationMs, 8321)
+  assert.equal(doc.evalCount, 71)
+  assert.equal(doc.evalDurationMs, 7731)
+  assert.equal(doc.loadDurationMs, 4149)
+  assert.equal(doc.totalDurationMs, 20384)
+})
+
+test('Ollama stats survive even when the response is too large to store (regression: 64KB cap)', async () => {
+  const big = 'a'.repeat(70_000)
+  ollamaFake.setHandler(async (req, res) => {
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' })
+    res.write(JSON.stringify({ message: { content: big }, done: false }) + '\n')
+    res.end(JSON.stringify({ message: { content: '' }, done: true, eval_count: 42, eval_duration: 2_000_000_000 }) + '\n')
+  })
+
+  const res = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'big-stats-test', messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+
+  const doc = await latestDoc({ backend: 'ollama', model: 'big-stats-test' })
+  assert.equal(doc.responseBody, null, 'responseBody itself should still be dropped past the 64KB cap')
+  assert.equal(doc.responseBodyTruncated, true)
+  assert.equal(doc.evalCount, 42, 'stats should be extracted from the raw buffer regardless of the storage cap')
+  assert.equal(doc.evalDurationMs, 2000)
+})
+
+test('gateway_ollama_tokens_per_second is exposed on /metrics after an Ollama call with stats', async () => {
+  ollamaFake.setHandler(async (req, res) => {
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' })
+    res.end(JSON.stringify({ message: { content: '' }, done: true, eval_count: 100, eval_duration: 10_000_000_000 }) + '\n')
+  })
+
+  const res = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'metrics-test', messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+  await latestDoc({ backend: 'ollama', model: 'metrics-test' })
+
+  const metrics = await (await fetch(`${baseUrl}/metrics`)).text()
+  assert.match(metrics, /gateway_ollama_tokens_per_second_bucket\{.*model="metrics-test".*\}/)
+})
+
 test('locally-rejected requests are logged with backend "gateway" (regression: were invisible)', async () => {
   const before1 = await collection.countDocuments({ backend: 'gateway' })
 
