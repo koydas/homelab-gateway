@@ -44,6 +44,63 @@ npm run dev
 ## Deployment
 
 Deployed via ArgoCD from `k8s/` — see `gitops-homelab/apps/homelab-gateway`.
+There's no separate bootstrap step for this repo: pushing to `main` a change
+that touches code (i.e. anything outside `**.md`, `docs/**`, and `k8s/**` —
+see the `paths-ignore` on `.github/workflows/docker-publish.yml`) builds and
+pushes the image to GHCR, rewrites the tag in `k8s/deployment.yaml`, and
+commits that change back to the branch — ArgoCD picks up the new manifest
+from there. A docs- or manifest-only push (like this one) is intentionally
+skipped and does not trigger a build. `k8s/` is the full set of manifests
+(Deployment, Service, Ingress, ServiceMonitor); nothing else needs to be
+applied by hand.
+
 Reached at `http://gateway.home/` through the shared ingress-nginx entry
-point (`192.168.1.243`, see gitops-homelab docs/adr/0014); needs a local
-`/etc/hosts` entry, same as `ollama-chat.home`.
+point (`192.168.1.243`, see gitops-homelab docs/adr/0014).
+
+### Client DNS setup (manual, per machine)
+
+There is no DNS server in this homelab, so `gateway.home` only resolves on
+machines where it's added by hand. On every new client that needs to reach
+the gateway, add an `/etc/hosts` entry (or equivalent local DNS override)
+pointing at the shared ingress-nginx IP:
+
+```
+192.168.1.243  gateway.home
+```
+
+`/etc/hosts` resolves one hostname per line, so this entry only covers
+`gateway.home` — it does not also resolve `ollama-chat.home` or any other
+`*.home` service, even though they share the same ingress IP. Each hostname
+needs its own line, added on each client individually, e.g.:
+
+```
+192.168.1.243  gateway.home
+192.168.1.243  ollama-chat.home
+```
+
+### Transport: HTTP, not TLS
+
+The gateway is plain HTTP end-to-end, and that's the deliberate current
+state, not an oversight:
+
+- `k8s/ingress.yaml` has no `tls:` block, so ingress-nginx terminates
+  nothing and serves `gateway.home` over HTTP only.
+- `k8s/service.yaml` is `ClusterIP` on port 80 → container port 8080, both
+  plain HTTP.
+- `server/index.js` calls `app.listen()` with no TLS options, and proxies
+  to `OLLAMA_URL` / `WHISPER_URL` / `PIPER_URL`, which are themselves
+  `http://` in-cluster addresses.
+
+Everything stays inside the LAN and cluster-internal network, so there's no
+TLS anywhere in the path today. Revisit this if the gateway is ever exposed
+outside the trusted LAN.
+
+### Secrets
+
+No API keys, tokens, or credentials are required to start the gateway. The
+only configuration is the three backend URLs (`OLLAMA_URL`, `WHISPER_URL`,
+`PIPER_URL`), set as plain env vars in `k8s/deployment.yaml` and defaulting
+to the in-cluster service DNS names if unset — see `server/index.js`. There
+is no `Secret` resource in `k8s/`. If a backend ever needs an API key, add it
+via a `Secret` referenced through `envFrom`/`secretKeyRef` rather than a
+plain env var, and document it here.
