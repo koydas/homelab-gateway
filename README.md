@@ -1,5 +1,7 @@
 # homelab-gateway
 
+[![e2e](https://github.com/koydas/homelab-gateway/actions/workflows/e2e.yml/badge.svg)](https://github.com/koydas/homelab-gateway/actions/workflows/e2e.yml)
+
 Single LAN entry point in front of `whisper`, `piper`, and `ollama`. Routes
 each request to the right backend by inspecting its content — no `/whisper`,
 `/piper`, `/ollama` prefix required — and exposes Prometheus metrics for
