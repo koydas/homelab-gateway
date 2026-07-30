@@ -44,12 +44,15 @@ npm run dev
 ## Deployment
 
 Deployed via ArgoCD from `k8s/` — see `gitops-homelab/apps/homelab-gateway`.
-There's no separate bootstrap step for this repo: pushing to `main` runs
-`.github/workflows/docker-publish.yml`, which builds and pushes the image to
-GHCR, rewrites the tag in `k8s/deployment.yaml`, and commits that change back
-to the branch — ArgoCD picks up the new manifest from there. `k8s/` is the
-full set of manifests (Deployment, Service, Ingress, ServiceMonitor); nothing
-else needs to be applied by hand.
+There's no separate bootstrap step for this repo: pushing to `main` a change
+that touches code (i.e. anything outside `**.md`, `docs/**`, and `k8s/**` —
+see the `paths-ignore` on `.github/workflows/docker-publish.yml`) builds and
+pushes the image to GHCR, rewrites the tag in `k8s/deployment.yaml`, and
+commits that change back to the branch — ArgoCD picks up the new manifest
+from there. A docs- or manifest-only push (like this one) is intentionally
+skipped and does not trigger a build. `k8s/` is the full set of manifests
+(Deployment, Service, Ingress, ServiceMonitor); nothing else needs to be
+applied by hand.
 
 Reached at `http://gateway.home/` through the shared ingress-nginx entry
 point (`192.168.1.243`, see gitops-homelab docs/adr/0014).
