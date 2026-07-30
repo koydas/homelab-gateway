@@ -21,7 +21,7 @@ ls docs/adr/[0-9][0-9][0-9][0-9]-*.md | sort
 ```
 
 Take the highest number and increment by one. Four digits, zero-padded (e.g. `0002`). Only
-one ADR exists as of this writing (`0001-mongodb-call-log.md`) — always check the current
+two ADRs exist as of this writing (`0001-mongodb-call-log.md`, `0002-structured-ollama-stats.md`) — always check the current
 count rather than assuming a number.
 
 ### Step 2 — Create the ADR file

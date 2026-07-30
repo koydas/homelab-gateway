@@ -3,8 +3,9 @@
 `homelab-gateway` is a single Express process: a content-sniffing reverse proxy in front of
 Ollama/Whisper/Piper, plus two side effects on every proxied call — a Prometheus metric and a
 MongoDB log entry. There's no routing table, no per-client config, and no state beyond that
-log — see [`docs/adr/`](./adr/README.md) for the one non-obvious decision (why a bundled
-MongoDB instead of just the metrics).
+log — see [`docs/adr/`](./adr/README.md) for the non-obvious decisions behind it (why a bundled
+MongoDB instead of just the metrics; why Ollama's native timing stats are extracted into
+structured fields on top of that).
 
 This page is the map: components and the production runtime topology. See also:
 
