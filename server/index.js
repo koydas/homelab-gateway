@@ -1,6 +1,7 @@
 import express from 'express'
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware'
 import client from 'prom-client'
+import { logCall } from './call-log.js'
 
 // In-cluster services (see gitops-homelab). Overridable for local dev
 // against the LAN IPs instead of cluster-internal DNS.
@@ -34,21 +35,60 @@ const ollamaModelRequests = new client.Counter({
 
 const app = express()
 
-// Records metrics for every request that got routed somewhere.
-// req.gatewayBackend is set by the routing middleware below before handing
-// off to a proxy; requests that never reach a backend (/healthz, /metrics,
-// a rejected 400) leave it unset and are skipped here.
+// Records metrics and the call-log entry for every request that got routed
+// somewhere. req.gatewayBackend is set by the routing middleware below
+// before handing off to a proxy; requests that never reach a backend
+// (/healthz, /metrics, a rejected 400) leave it unset and are skipped here.
+// Response body/content-type, when captured, are attached to req by the
+// proxyRes hooks below (see captureProxyResponse).
 app.use((req, res, next) => {
   const start = process.hrtime.bigint()
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress
   res.on('finish', () => {
     const backend = req.gatewayBackend
     if (!backend) return
     const seconds = Number(process.hrtime.bigint() - start) / 1e9
     requestDuration.observe({ backend }, seconds)
     requestsTotal.inc({ backend, method: req.method, status_code: res.statusCode })
+
+    logCall({
+      backend,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Math.round(seconds * 1000),
+      model: req.body && req.body.model !== undefined ? String(req.body.model) : undefined,
+      clientIp,
+      requestBody: req.body ?? null,
+      requestContentType: req.headers['content-type'],
+      responseBody: req.gatewayResponseBody ?? null,
+      responseContentType: req.gatewayResponseContentType,
+      error: req.gatewayProxyError,
+    })
   })
   next()
 })
+
+// Response bodies are captured by tee-ing proxyRes chunks alongside the
+// normal pipe to the client (http-proxy-middleware pipes proxyRes -> res
+// after emitting this event; adding our own 'data' listener here doesn't
+// interfere with that). Capped well above the call-log truncation limit so
+// a large-but-loggable JSON response isn't cut short here, while a huge
+// streamed generation or audio body still can't balloon gateway memory.
+const MAX_CAPTURE_BYTES = 512 * 1024
+const captureProxyResponse = (proxyRes, req) => {
+  const chunks = []
+  let size = 0
+  proxyRes.on('data', (chunk) => {
+    if (size >= MAX_CAPTURE_BYTES) return
+    chunks.push(chunk)
+    size += chunk.length
+  })
+  proxyRes.on('end', () => {
+    req.gatewayResponseBody = Buffer.concat(chunks)
+    req.gatewayResponseContentType = proxyRes.headers['content-type']
+  })
+}
 
 app.get('/healthz', (req, res) => res.json({ status: 'ok' }))
 
@@ -62,6 +102,7 @@ app.get('/metrics', async (req, res) => {
 const rewriteTo = (targetPath) => (path) => targetPath + (path.includes('?') ? path.slice(path.indexOf('?')) : '')
 
 const onProxyError = (backend) => (err, req, res) => {
+  req.gatewayProxyError = err.message
   res.writeHead(502, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify({ error: 'Backend unreachable', backend, detail: err.message }))
 }
@@ -70,14 +111,14 @@ const whisperProxy = createProxyMiddleware({
   target: WHISPER_URL,
   changeOrigin: true,
   pathRewrite: rewriteTo('/asr'),
-  on: { error: onProxyError('whisper') },
+  on: { proxyRes: captureProxyResponse, error: onProxyError('whisper') },
 })
 
 const piperProxy = createProxyMiddleware({
   target: PIPER_URL,
   changeOrigin: true,
   pathRewrite: rewriteTo('/tts'),
-  on: { proxyReq: fixRequestBody, error: onProxyError('piper') },
+  on: { proxyReq: fixRequestBody, proxyRes: captureProxyResponse, error: onProxyError('piper') },
 })
 
 const ollamaProxy = createProxyMiddleware({
@@ -94,6 +135,7 @@ const ollamaProxy = createProxyMiddleware({
       proxyReq.setHeader('origin', OLLAMA_URL)
       fixRequestBody(proxyReq, req)
     },
+    proxyRes: captureProxyResponse,
     error: onProxyError('ollama'),
   },
 })

@@ -1,0 +1,69 @@
+# Single-instance MongoDB backing the gateway's call-log (server/call-log.js).
+# No replication/HA: this is a homelab audit log, not a system of record, and
+# the node itself is single-node — a StatefulSet would buy nothing here that
+# a Deployment + PVC doesn't already give.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: homelab-gateway-mongo
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homelab-gateway-mongo
+  labels:
+    app: homelab-gateway-mongo
+spec:
+  replicas: 1
+  strategy:
+    # hostpath-backed PVC binds to one node and doesn't support concurrent
+    # mounts -- Recreate avoids a RollingUpdate wedging on a second pod stuck
+    # Pending for the same volume.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: homelab-gateway-mongo
+  template:
+    metadata:
+      labels:
+        app: homelab-gateway-mongo
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: homelab-gateway-mongo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: homelab-gateway-mongo
+  labels:
+    app: homelab-gateway-mongo
+spec:
+  type: ClusterIP
+  selector:
+    app: homelab-gateway-mongo
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: 27017

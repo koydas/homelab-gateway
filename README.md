@@ -31,6 +31,29 @@ CPU/RAM per backend pod isn't duplicated here — it's already collected by
 the cluster's existing cAdvisor/kube-prometheus metrics, filterable by
 namespace (`whisper`, `piper`, `ollama`, `homelab-gateway`).
 
+## Call log (MongoDB)
+
+Every proxied request is also written as one document per call to a
+`homelab-gateway-mongo` MongoDB instance (`k8s/mongo.yaml`), separate from
+the aggregate `/metrics` counters above — this is per-call history, not just
+totals. See `server/call-log.js`.
+
+- Each document: timestamp, backend, method, path, status code, duration,
+  Ollama model (if any), client IP, and request/response bodies.
+- Bodies are only stored for JSON/text content-types up to 64KB; anything
+  else (audio, oversized bodies) is recorded as size + content-type only,
+  to avoid dumping binary blobs into Mongo for no benefit.
+- Logging is fire-and-forget: a slow or unreachable Mongo never adds
+  latency to a proxied request, and never takes the gateway down — insert
+  failures are only `console.error`'d.
+- A TTL index (`LOG_RETENTION_DAYS`, default 30) auto-expires old entries so
+  this doesn't grow unbounded on a single-node cluster.
+- Config: `MONGO_URL` (default: in-cluster `homelab-gateway-mongo` Service),
+  `MONGO_DB` (default `homelab_gateway`), `LOG_RETENTION_DAYS`.
+- Mongo runs as a single replica (Deployment + hostpath PVC, no HA) — it's
+  a homelab audit log, not a system of record. See the comment in
+  `k8s/mongo.yaml` for why this is a Deployment and not a StatefulSet.
+
 ## Local dev
 
 ```bash
@@ -98,9 +121,11 @@ outside the trusted LAN.
 ### Secrets
 
 No API keys, tokens, or credentials are required to start the gateway. The
-only configuration is the three backend URLs (`OLLAMA_URL`, `WHISPER_URL`,
-`PIPER_URL`), set as plain env vars in `k8s/deployment.yaml` and defaulting
-to the in-cluster service DNS names if unset — see `server/index.js`. There
-is no `Secret` resource in `k8s/`. If a backend ever needs an API key, add it
+only configuration is the backend URLs (`OLLAMA_URL`, `WHISPER_URL`,
+`PIPER_URL`, `MONGO_URL`), set as plain env vars in `k8s/deployment.yaml` and
+defaulting to the in-cluster service DNS names if unset — see
+`server/index.js`. There is no `Secret` resource in `k8s/`, and the bundled
+`homelab-gateway-mongo` has no auth enabled — it's ClusterIP-only, unreachable
+outside the cluster network. If a backend ever needs an API key, add it
 via a `Secret` referenced through `envFrom`/`secretKeyRef` rather than a
 plain env var, and document it here.
