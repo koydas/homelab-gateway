@@ -16,7 +16,7 @@ const RETENTION_DAYS = 7
 
 let mongod, mongoClient, collection
 let app, server, baseUrl
-let ollamaFake, whisperFake, piperFake
+let ollamaFake, whisperFake, piperFake, anthropicFake
 let callLog
 
 function createFakeBackend() {
@@ -67,9 +67,11 @@ before(async () => {
   ollamaFake = createFakeBackend()
   whisperFake = createFakeBackend()
   piperFake = createFakeBackend()
+  anthropicFake = createFakeBackend()
   const ollamaPort = await ollamaFake.listen()
   const whisperPort = await whisperFake.listen()
   const piperPort = await piperFake.listen()
+  const anthropicPort = await anthropicFake.listen()
 
   process.env.MONGO_URL = mongod.getUri()
   process.env.MONGO_DB = DB_NAME
@@ -77,6 +79,7 @@ before(async () => {
   process.env.OLLAMA_URL = `http://127.0.0.1:${ollamaPort}`
   process.env.WHISPER_URL = `http://127.0.0.1:${whisperPort}`
   process.env.PIPER_URL = `http://127.0.0.1:${piperPort}`
+  process.env.ANTHROPIC_URL = `http://127.0.0.1:${anthropicPort}`
 
   // Import after env vars are set -- both modules read their config from
   // process.env at top-level, once, on first import.
@@ -108,7 +111,7 @@ after(async () => {
   whisperFake.raw.closeAllConnections()
 
   await new Promise((resolve) => server.close(resolve))
-  await Promise.all([ollamaFake.close(), whisperFake.close(), piperFake.close()])
+  await Promise.all([ollamaFake.close(), whisperFake.close(), piperFake.close(), anthropicFake.close()])
   await callLog.close() // the gateway's own MongoClient -- same hang risk, see above
   await mongoClient.close()
   await mongod.stop()
@@ -220,6 +223,67 @@ test('Whisper: multipart request body is not captured, JSON/text response is', a
   assert.equal(doc.requestBody, null)
   assert.equal(doc.responseBody, 'bonjour le monde')
   assert.equal(doc.responseContentType, 'text/plain')
+})
+
+test('a model field starting with "claude-" routes to Claude, x-api-key passed through unchanged', async () => {
+  let seenPath, seenApiKey
+  anthropicFake.setHandler(async (req, res) => {
+    seenPath = req.url
+    seenApiKey = req.headers['x-api-key']
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ id: 'msg_test', content: [{ type: 'text', text: 'bonjour' }] }))
+  })
+
+  const res = await fetch(`${baseUrl}/v1/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': 'sk-ant-test-key' },
+    body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+  assert.equal(seenPath, '/v1/messages')
+  assert.equal(seenApiKey, 'sk-ant-test-key', "gateway must relay the client's own x-api-key unchanged")
+
+  const doc = await latestDoc({ backend: 'claude', model: 'claude-opus-5' })
+  assert.equal(doc.statusCode, 200)
+  assert.deepEqual(doc.requestBody.messages, [{ role: 'user', content: 'hi' }])
+})
+
+test('an Ollama-style model (colon tag, no "claude-" prefix) still routes to Ollama, not Claude', async () => {
+  ollamaFake.setHandler(async (req, res) => {
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ response: 'ok', done: true }))
+  })
+
+  const res = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'llama3.1:8b-instruct-q4_0', messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+
+  const doc = await latestDoc({ backend: 'ollama', model: 'llama3.1:8b-instruct-q4_0' })
+  assert.equal(doc.statusCode, 200)
+})
+
+test('gateway_claude_model_requests_total is exposed on /metrics after a Claude call', async () => {
+  anthropicFake.setHandler(async (req, res) => {
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ id: 'msg_metrics_test' }))
+  })
+
+  const res = await fetch(`${baseUrl}/v1/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': 'sk-ant-test-key' },
+    body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+  await latestDoc({ backend: 'claude', model: 'claude-opus-5' })
+
+  const metrics = await (await fetch(`${baseUrl}/metrics`)).text()
+  assert.match(metrics, /gateway_claude_model_requests_total\{.*model="claude-opus-5".*\} \d/)
 })
 
 test('concurrent requests are never cross-attributed to each other', async () => {

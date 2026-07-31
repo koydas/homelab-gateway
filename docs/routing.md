@@ -2,9 +2,9 @@
 
 ## Routing: picking a backend by content, not by path
 
-There's no `/ollama/*`, `/whisper/*`, `/piper/*` URL scheme — every request arrives at
-whatever path the client used (`/api/chat`, `/api/tags`, ...) and the gateway decides where it
-goes purely from `Content-Type` and the JSON body shape:
+There's no `/ollama/*`, `/whisper/*`, `/piper/*`, `/claude/*` URL scheme — every request
+arrives at whatever path the client used (`/api/chat`, `/v1/messages`, ...) and the gateway
+decides where it goes purely from `Content-Type` and the JSON body shape:
 
 ```mermaid
 flowchart TD
@@ -13,7 +13,9 @@ flowchart TD
     B -- no --> C[express.json parses body]
     C --> D{JSON body has a<br/>'text' field, no 'model'?}
     D -- yes --> P["Piper<br/>POST /tts"]
-    D -- no --> E{JSON body has<br/>a 'model' field?}
+    D -- no --> G{"'model' starts with<br/>'claude-'?"}
+    G -- yes --> CL["Claude (Anthropic API)<br/>original path preserved (/v1/messages)"]
+    G -- no --> E{JSON body has<br/>a 'model' field?}
     E -- yes --> O["Ollama<br/>original path preserved"]
     E -- no --> F{"Body is empty<br/>(GET, /api/tags, ...)?"}
     F -- yes --> O

@@ -8,6 +8,11 @@ import { logCall } from './call-log.js'
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama.ollama.svc.cluster.local:11434'
 const WHISPER_URL = process.env.WHISPER_URL || 'http://whisper.whisper.svc.cluster.local:9000'
 const PIPER_URL = process.env.PIPER_URL || 'http://piper.piper.svc.cluster.local:8000'
+// Unlike the other three, this is a real external service, not an
+// in-cluster one -- ollama-chat's own Anthropic API key travels through
+// unchanged (this proxy never sees or injects it), so nothing gateway-side
+// needs a credential of its own. See ADR-0003.
+const ANTHROPIC_URL = process.env.ANTHROPIC_URL || 'https://api.anthropic.com'
 
 const register = new client.Registry()
 client.collectDefaultMetrics({ register })
@@ -29,6 +34,13 @@ const requestDuration = new client.Histogram({
 const ollamaModelRequests = new client.Counter({
   name: 'gateway_ollama_model_requests_total',
   help: 'Requests routed to Ollama, by model',
+  labelNames: ['model'],
+  registers: [register],
+})
+
+const claudeModelRequests = new client.Counter({
+  name: 'gateway_claude_model_requests_total',
+  help: 'Requests routed to Claude, by model',
   labelNames: ['model'],
   registers: [register],
 })
@@ -194,6 +206,21 @@ const ollamaProxy = createProxyMiddleware({
   },
 })
 
+// A plain pass-through, unlike ollamaProxy: Anthropic has no Origin
+// allowlist to work around, and ollama-chat's own request already carries
+// a real x-api-key header (its own secret, untouched by this proxy) --
+// there's nothing backend-specific left for this gateway to fix up. See
+// ADR-0003.
+const claudeProxy = createProxyMiddleware({
+  target: ANTHROPIC_URL,
+  changeOrigin: true,
+  on: {
+    proxyReq: fixRequestBody,
+    proxyRes: captureProxyResponse,
+    error: onProxyError('claude'),
+  },
+})
+
 // Rule 1: audio/* or multipart -> whisper, streamed through unparsed so a
 // large audio upload is never buffered in memory just to inspect it.
 app.use((req, res, next) => {
@@ -223,6 +250,12 @@ app.use((req, res, next) => {
   if (body && typeof body.text === 'string' && body.model === undefined) {
     req.gatewayBackend = 'piper'
     return piperProxy(req, res, next)
+  }
+
+  if (body && typeof body.model === 'string' && body.model.startsWith('claude-')) {
+    req.gatewayBackend = 'claude'
+    claudeModelRequests.inc({ model: body.model })
+    return claudeProxy(req, res, next)
   }
 
   if (body && body.model !== undefined) {

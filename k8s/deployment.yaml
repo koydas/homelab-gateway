@@ -26,6 +26,8 @@ spec:
               value: http://whisper.whisper.svc.cluster.local:9000
             - name: PIPER_URL
               value: http://piper.piper.svc.cluster.local:8000
+            - name: ANTHROPIC_URL
+              value: https://api.anthropic.com
             - name: MONGO_URL
               value: mongodb://homelab-gateway-mongo.homelab-gateway.svc.cluster.local:27017
           ports:

@@ -1,7 +1,8 @@
 # Architecture
 
 `homelab-gateway` is a single Express process: a content-sniffing reverse proxy in front of
-Ollama/Whisper/Piper, plus two side effects on every proxied call — a Prometheus metric and a
+Ollama/Whisper/Piper and the Anthropic API (Claude), plus two side effects on every proxied
+call — a Prometheus metric and a
 MongoDB log entry. There's no routing table, no per-client config, and no state beyond that
 log — see [`docs/adr/`](./adr/README.md) for the non-obvious decisions behind it (why a bundled
 MongoDB instead of just the metrics; why Ollama's native timing stats are extracted into
@@ -22,6 +23,7 @@ This page is the map: components and the production runtime topology. See also:
 | Ollama | LLM inference backend | in-cluster `ollama` Service |
 | Whisper | Speech-to-text backend | in-cluster `whisper` Service |
 | Piper | Text-to-speech backend | in-cluster `piper` Service |
+| Claude (Anthropic API) | LLM inference backend, external — the only one of the four not in-cluster; no credential of its own, see [ADR-0003](./adr/0003-front-claude-calls.md) | `api.anthropic.com` |
 | ArgoCD + GHCR | Builds, publishes, and deploys this app on every push to `main` | `.github/workflows/docker-publish.yml`, `k8s/` |
 
 This repo owns none of Ollama/Whisper/Piper themselves, nor the cluster/ArgoCD/MetalLB layer
@@ -57,11 +59,13 @@ flowchart TB
         Ing["ingress-nginx<br/>192.168.1.243<br/>host: gateway.home"]
         Mon["monitoring Application<br/>(Prometheus)"]
     end
-    Chat -->|OLLAMA_URL / WHISPER_URL / PIPER_URL| Pod
+    Anthropic["api.anthropic.com<br/>(external, not in-cluster)"]
+    Chat -->|OLLAMA_URL / WHISPER_URL / PIPER_URL<br/>x-api-key travels through unchanged| Pod
     Op -->|http://gateway.home| Ing --> Pod
     Pod --> OllamaSvc
     Pod --> WhisperSvc
     Pod --> PiperSvc
+    Pod --> Anthropic
     Mon -.->|scrapes /metrics<br/>ServiceMonitor| Pod
 ```
 
