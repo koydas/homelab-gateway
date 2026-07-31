@@ -23,7 +23,7 @@ This page is the map: components and the production runtime topology. See also:
 | Ollama | LLM inference backend | in-cluster `ollama` Service |
 | Whisper | Speech-to-text backend | in-cluster `whisper` Service |
 | Piper | Text-to-speech backend | in-cluster `piper` Service |
-| Claude (Anthropic API) | LLM inference backend, external — the only one of the four not in-cluster; no credential of its own, see [ADR-0003](./adr/0003-front-claude-calls.md) | `api.anthropic.com` |
+| Claude (Anthropic API) | LLM inference backend, external — the only one of the four not in-cluster, and the only one this gateway holds a credential for (`ANTHROPIC_API_KEY`), see [ADR-0004](./adr/0004-gateway-owns-anthropic-key.md) | `api.anthropic.com` |
 | ArgoCD + GHCR | Builds, publishes, and deploys this app on every push to `main` | `.github/workflows/docker-publish.yml`, `k8s/` |
 
 This repo owns none of Ollama/Whisper/Piper themselves, nor the cluster/ArgoCD/MetalLB layer
@@ -60,7 +60,7 @@ flowchart TB
         Mon["monitoring Application<br/>(Prometheus)"]
     end
     Anthropic["api.anthropic.com<br/>(external, not in-cluster)"]
-    Chat -->|OLLAMA_URL / WHISPER_URL / PIPER_URL<br/>x-api-key travels through unchanged| Pod
+    Chat -->|OLLAMA_URL / WHISPER_URL / PIPER_URL / CLAUDE_URL<br/>no Anthropic credential of its own| Pod
     Op -->|http://gateway.home| Ing --> Pod
     Pod --> OllamaSvc
     Pod --> WhisperSvc

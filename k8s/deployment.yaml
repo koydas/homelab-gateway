@@ -28,6 +28,13 @@ spec:
               value: http://piper.piper.svc.cluster.local:8000
             - name: ANTHROPIC_URL
               value: https://api.anthropic.com
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  # Created once out-of-band (never in Git) -- see docs/adr/0004
+                  # and docs/deployment.md's "Setting up the Anthropic API key".
+                  name: homelab-gateway-anthropic
+                  key: ANTHROPIC_API_KEY
             - name: MONGO_URL
               value: mongodb://homelab-gateway-mongo.homelab-gateway.svc.cluster.local:27017
           ports:

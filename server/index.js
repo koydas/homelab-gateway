@@ -9,10 +9,12 @@ const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama.ollama.svc.cluster.l
 const WHISPER_URL = process.env.WHISPER_URL || 'http://whisper.whisper.svc.cluster.local:9000'
 const PIPER_URL = process.env.PIPER_URL || 'http://piper.piper.svc.cluster.local:8000'
 // Unlike the other three, this is a real external service, not an
-// in-cluster one -- ollama-chat's own Anthropic API key travels through
-// unchanged (this proxy never sees or injects it), so nothing gateway-side
-// needs a credential of its own. See ADR-0003.
+// in-cluster one -- and unlike them, this proxy also owns the credential
+// for it (ANTHROPIC_API_KEY below), so ollama-chat can depend on this
+// gateway alone rather than needing its own copy of the key. See ADR-0004
+// (supersedes ADR-0003's original "no credential here" call).
 const ANTHROPIC_URL = process.env.ANTHROPIC_URL || 'https://api.anthropic.com'
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 const register = new client.Registry()
 client.collectDefaultMetrics({ register })
@@ -206,16 +208,21 @@ const ollamaProxy = createProxyMiddleware({
   },
 })
 
-// A plain pass-through, unlike ollamaProxy: Anthropic has no Origin
-// allowlist to work around, and ollama-chat's own request already carries
-// a real x-api-key header (its own secret, untouched by this proxy) --
-// there's nothing backend-specific left for this gateway to fix up. See
-// ADR-0003.
+// Anthropic has no Origin allowlist to work around (unlike Ollama), but
+// this gateway does own the credential for this backend: it overwrites
+// whatever x-api-key the client sent (ollama-chat sends a placeholder --
+// see that repo's server/index.js) with the real key, the same way
+// ollamaProxy overwrites Origin. The routing rule below only ever hands a
+// request to this proxy once ANTHROPIC_API_KEY has been confirmed set.
+// See ADR-0004.
 const claudeProxy = createProxyMiddleware({
   target: ANTHROPIC_URL,
   changeOrigin: true,
   on: {
-    proxyReq: fixRequestBody,
+    proxyReq: (proxyReq, req) => {
+      proxyReq.setHeader('x-api-key', ANTHROPIC_API_KEY)
+      fixRequestBody(proxyReq, req)
+    },
     proxyRes: captureProxyResponse,
     error: onProxyError('claude'),
   },
@@ -254,6 +261,9 @@ app.use((req, res, next) => {
 
   if (body && typeof body.model === 'string' && body.model.startsWith('claude-')) {
     req.gatewayBackend = 'claude'
+    if (!ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured on the gateway' })
+    }
     claudeModelRequests.inc({ model: body.model })
     return claudeProxy(req, res, next)
   }

@@ -3,6 +3,11 @@
 - **Date:** 2026-07-31
 - **Status:** Accepted
 
+> **Note:** the credential-ownership call below ("no credential lives here") was reversed the
+> same day, once it became clear it made `ollama-chat` un-deployable without a secret that
+> gateway routing was supposed to make optional. See [ADR-0004](./0004-gateway-owns-anthropic-key.md).
+> Routing/pass-through decisions in this ADR are otherwise unchanged.
+
 ## Context
 
 `ollama-chat` is adding a "Claude" chat mode alongside its existing Ollama-backed "Chat" and

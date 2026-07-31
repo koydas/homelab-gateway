@@ -158,12 +158,15 @@ outside the trusted LAN.
 
 ### Secrets
 
-No API keys, tokens, or credentials are required to start the gateway. The
-only configuration is the backend URLs (`OLLAMA_URL`, `WHISPER_URL`,
-`PIPER_URL`, `MONGO_URL`), set as plain env vars in `k8s/deployment.yaml` and
-defaulting to the in-cluster service DNS names if unset — see
-`server/index.js`. There is no `Secret` resource in `k8s/`, and the bundled
-`homelab-gateway-mongo` has no auth enabled — it's ClusterIP-only, unreachable
-outside the cluster network. If a backend ever needs an API key, add it
-via a `Secret` referenced through `envFrom`/`secretKeyRef` rather than a
-plain env var, and document it here.
+Most configuration is backend URLs (`OLLAMA_URL`, `WHISPER_URL`, `PIPER_URL`, `ANTHROPIC_URL`,
+`MONGO_URL`), set as plain env vars in `k8s/deployment.yaml` and defaulting to the in-cluster
+service DNS names if unset — see `server/index.js`. Ollama/Whisper/Piper need no credential at
+all (unauthenticated in-cluster services), and the bundled `homelab-gateway-mongo` has no auth
+enabled — it's ClusterIP-only, unreachable outside the cluster network.
+
+The one real credential is `ANTHROPIC_API_KEY`, from a `homelab-gateway-anthropic` Secret
+created once out-of-band (never in Git) — this gateway holds it so `ollama-chat` never needs a
+copy of its own; see [ADR-0004](./docs/adr/0004-gateway-owns-anthropic-key.md) and
+`docs/deployment.md`'s "Setting up the Anthropic API key". If another backend ever needs a
+credential, add it the same way (a `Secret` referenced through `secretKeyRef`) and document it
+here.

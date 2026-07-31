@@ -80,6 +80,7 @@ before(async () => {
   process.env.WHISPER_URL = `http://127.0.0.1:${whisperPort}`
   process.env.PIPER_URL = `http://127.0.0.1:${piperPort}`
   process.env.ANTHROPIC_URL = `http://127.0.0.1:${anthropicPort}`
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-gateway-real-key'
 
   // Import after env vars are set -- both modules read their config from
   // process.env at top-level, once, on first import.
@@ -225,7 +226,7 @@ test('Whisper: multipart request body is not captured, JSON/text response is', a
   assert.equal(doc.responseContentType, 'text/plain')
 })
 
-test('a model field starting with "claude-" routes to Claude, x-api-key passed through unchanged', async () => {
+test('a model field starting with "claude-" routes to Claude, x-api-key overwritten with the gateway\'s own key', async () => {
   let seenPath, seenApiKey
   anthropicFake.setHandler(async (req, res) => {
     seenPath = req.url
@@ -237,16 +238,55 @@ test('a model field starting with "claude-" routes to Claude, x-api-key passed t
 
   const res = await fetch(`${baseUrl}/v1/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': 'sk-ant-test-key' },
+    // ollama-chat sends a placeholder here -- see that repo's ADR-0019 --
+    // this gateway must never forward it as-is.
+    headers: { 'Content-Type': 'application/json', 'x-api-key': 'placeholder-from-ollama-chat' },
     body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] }),
   })
   assert.equal(res.status, 200)
   assert.equal(seenPath, '/v1/messages')
-  assert.equal(seenApiKey, 'sk-ant-test-key', "gateway must relay the client's own x-api-key unchanged")
+  assert.equal(seenApiKey, 'sk-ant-gateway-real-key', "gateway must overwrite the client's x-api-key with its own")
 
   const doc = await latestDoc({ backend: 'claude', model: 'claude-opus-5' })
   assert.equal(doc.statusCode, 200)
   assert.deepEqual(doc.requestBody.messages, [{ role: 'user', content: 'hi' }])
+})
+
+test('returns 500 without ever calling out when ANTHROPIC_API_KEY is not configured on the gateway', async () => {
+  // ANTHROPIC_API_KEY is a module-level const captured at import time, so
+  // exercising the unconfigured path needs a second app instance imported
+  // fresh with the var unset -- a cache-busting query string forces Node to
+  // re-evaluate the module instead of returning the already-imported one.
+  let called = false
+  anthropicFake.setHandler((req, res) => {
+    called = true
+    res.writeHead(200).end('{}')
+  })
+
+  const savedKey = process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_API_KEY
+  let unconfiguredApp, unconfiguredServer
+  try {
+    ;({ default: unconfiguredApp } = await import(`../server/index.js?no-anthropic-key=${Date.now()}`))
+    unconfiguredServer = await new Promise((resolve) => {
+      const s = unconfiguredApp.listen(0, '127.0.0.1', () => resolve(s))
+    })
+    const unconfiguredBaseUrl = `http://127.0.0.1:${unconfiguredServer.address().port}`
+
+    const res = await fetch(`${unconfiguredBaseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] }),
+    })
+    assert.equal(res.status, 500)
+    assert.equal(called, false, 'must not call Anthropic at all without a configured key')
+  } finally {
+    process.env.ANTHROPIC_API_KEY = savedKey
+    if (unconfiguredServer) {
+      unconfiguredServer.closeAllConnections()
+      await new Promise((resolve) => unconfiguredServer.close(resolve))
+    }
+  }
 })
 
 test('an Ollama-style model (colon tag, no "claude-" prefix) still routes to Ollama, not Claude', async () => {
