@@ -1,6 +1,7 @@
 import express from 'express'
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware'
 import client from 'prom-client'
+import zlib from 'node:zlib'
 import { logCall } from './call-log.js'
 
 // In-cluster services (see gitops-homelab). Overridable for local dev
@@ -144,18 +145,44 @@ app.use((req, res, next) => {
 // a large-but-loggable JSON response isn't cut short here, while a huge
 // streamed generation or audio body still can't balloon gateway memory.
 const MAX_CAPTURE_BYTES = 512 * 1024
+
+// Anthropic (and potentially other backends) compress responses --
+// http-proxy-middleware pipes those bytes to the client untouched (correct;
+// the client negotiated that encoding), but this tee captures the same raw
+// compressed bytes for logging, which is unreadable in call_log without
+// this. Decompress the *captured copy only* -- res.write, .responseBody
+// on the wire, and everything the real client sees is untouched by this.
+const DECOMPRESSORS = { gzip: zlib.gunzipSync, br: zlib.brotliDecompressSync, deflate: zlib.inflateSync }
 const captureProxyResponse = (proxyRes, req) => {
   const chunks = []
   let size = 0
+  let truncated = false
   proxyRes.on('data', (chunk) => {
-    if (size >= MAX_CAPTURE_BYTES) return
+    if (size >= MAX_CAPTURE_BYTES) {
+      truncated = true
+      return
+    }
     chunks.push(chunk)
     size += chunk.length
   })
   proxyRes.on('end', () => {
-    req.gatewayResponseBody = Buffer.concat(chunks)
+    const raw = Buffer.concat(chunks)
+    const decompress = DECOMPRESSORS[proxyRes.headers['content-encoding']]
+    // A capture cut short by the cap above is an incomplete compressed
+    // stream and can't be decompressed -- store it raw rather than
+    // throwing (call-log.js's own size cap already excludes bodies this
+    // large from being read back as text either way).
+    req.gatewayResponseBody = decompress && !truncated ? tryDecompress(decompress, raw) : raw
     req.gatewayResponseContentType = proxyRes.headers['content-type']
   })
+}
+
+function tryDecompress(decompress, raw) {
+  try {
+    return decompress(raw)
+  } catch {
+    return raw
+  }
 }
 
 app.get('/healthz', (req, res) => res.json({ status: 'ok' }))

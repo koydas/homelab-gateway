@@ -8,6 +8,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import zlib from 'node:zlib'
 import { MongoMemoryServer } from 'mongodb-memory-server'
 import { MongoClient } from 'mongodb'
 
@@ -287,6 +288,39 @@ test('returns 500 without ever calling out when ANTHROPIC_API_KEY is not configu
       await new Promise((resolve) => unconfiguredServer.close(resolve))
     }
   }
+})
+
+test('gzip-compressed responses (e.g. real Anthropic replies) are logged decompressed and readable, client still gets the compressed bytes (regression: 2026-07-31, garbled responseBody)', async () => {
+  const plaintext = JSON.stringify({ id: 'msg_gzip_test', content: [{ type: 'text', text: 'bonjour depuis Claude' }] })
+  const gzipped = zlib.gzipSync(plaintext)
+  anthropicFake.setHandler(async (req, res) => {
+    await readBody(req)
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' })
+    res.end(gzipped)
+  })
+
+  const res = await fetch(`${baseUrl}/v1/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': 'placeholder' },
+    // Unique model, not 'claude-opus-5' -- other Claude tests in this file
+    // log against that same value, and latestDoc() doesn't sort by
+    // recency, so a shared value here would flakily read back a sibling
+    // test's document instead of this one.
+    body: JSON.stringify({ model: 'claude-gzip-test', max_tokens: 1024, messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(res.status, 200)
+  // The real client (ollama-chat, or here the test itself) still receives
+  // exactly what Anthropic sent, gzip and all -- this fix must not touch
+  // that path, only the internally-captured copy used for logging. `fetch`
+  // transparently decodes gzip per spec, so the header is what proves the
+  // wire response was never altered (a stripped/re-encoded body would
+  // still read correctly here but would mean this fix touched the real
+  // response, not just the logged copy).
+  assert.equal(res.headers.get('content-encoding'), 'gzip')
+  assert.equal(await res.text(), plaintext)
+
+  const doc = await latestDoc({ backend: 'claude', model: 'claude-gzip-test' })
+  assert.equal(doc.responseBody, plaintext, 'logged responseBody must be decompressed, readable text')
 })
 
 test('an Ollama-style model (colon tag, no "claude-" prefix) still routes to Ollama, not Claude', async () => {
